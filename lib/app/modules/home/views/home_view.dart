@@ -209,176 +209,106 @@ class _PadTile extends StatelessWidget {
       builder: (context, playingSnapshot) {
         final isPlaying = playingSnapshot.data == true;
 
+        // determine whether the pad's audio was preloaded into the engine
+        final loaded = controller.engine.isLoaded(pad.id);
+
         return AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
-          child: Material(
-            elevation: isPlaying ? 12 : 4,
-            borderRadius: BorderRadius.circular(20),
-            shadowColor: Color(pad.color).withOpacity(0.4),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: () => controller.playPad(pad),
-              onDoubleTap: () => controller.resetPad(pad),
-              onLongPress: () => controller.stopPad(pad),
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color(pad.color),
-                      Color(pad.color).withOpacity(0.8),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  border: isPlaying
-                      ? Border.all(
-                          color: Colors.white.withOpacity(0.6),
-                          width: 2,
-                        )
-                      : null,
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Stack(
-                    children: [
-                      // Animated background pattern for playing state
-                      if (isPlaying)
-                        Positioned.fill(
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 500),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Colors.white.withOpacity(0.1),
-                                  Colors.transparent,
-                                  Colors.white.withOpacity(0.05),
-                                ],
-                              ),
+          child: InkWell(
+            onTap: () => controller.playPad(pad),
+            onDoubleTap: () => controller.resetPad(pad),
+            onLongPress: () => controller.stopPad(pad),
+            child: Container(
+              decoration: BoxDecoration(
+                color: !loaded
+                    // not loaded -> greyed out pad
+                    ? colorScheme.onSurface.withOpacity(0.12)
+                    : (isPlaying
+                          ? Color(pad.color)
+                          : colorScheme.primaryContainer),
+                border: isPlaying
+                    ? Border.all(color: Colors.white.withOpacity(0.6), width: 2)
+                    : null,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Stack(
+                  children: [
+                    // Animated background pattern for playing state
+                    if (isPlaying)
+                      Positioned.fill(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 500),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.white.withOpacity(0.1),
+                                Colors.transparent,
+                                Colors.white.withOpacity(0.05),
+                              ],
                             ),
-                          ),
-                        ),
-
-                      // Progress indicator at top
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        top: 0,
-                        child: Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: _PadProgress(
-                            padId: pad.id,
-                            engine: controller.engine,
-                            decreasing: true,
                           ),
                         ),
                       ),
 
-                      // Main content area
-                      Positioned.fill(
-                        child: Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            16,
-                            isDesktop ? 28 : 24,
-                            16,
-                            12,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Title section
-                              Expanded(
-                                child: Center(
-                                  child: Text(
-                                    pad.title,
-                                    textAlign: TextAlign.center,
-                                    style: theme.textTheme.titleMedium
-                                        ?.copyWith(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: isDesktop ? 16 : 14,
-                                          shadows: [
-                                            Shadow(
-                                              offset: const Offset(0, 1),
-                                              blurRadius: 2,
-                                              color: Colors.black.withOpacity(
-                                                0.3,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
+                    // Progress indicator at top
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      top: 0,
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: _PadProgress(
+                          padId: pad.id,
+                          engine: controller.engine,
+                          decreasing: true,
+                        ),
+                      ),
+                    ),
+
+                    // Main content area
+                    Positioned.fill(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          isDesktop ? 28 : 24,
+                          16,
+                          12,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Title section
+                            Expanded(
+                              child: Center(
+                                child: Text(
+                                  pad.title,
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: isDesktop ? 16 : 14,
+                                    shadows: [
+                                      Shadow(
+                                        offset: const Offset(0, 1),
+                                        blurRadius: 2,
+                                        color: Colors.black.withOpacity(0.3),
+                                      ),
+                                    ],
                                   ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-
-                              // Bottom section with controls
-                              Row(
-                                children: [
-                                  // Audio level indicator
-                                  SizedBox(
-                                    width: 6,
-                                    height: 28,
-                                    child: _AudioMeter(
-                                      padId: pad.id,
-                                      engine: controller.engine,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-
-                                  // Loop indicator
-                                  if (pad.loop)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.9),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Icon(
-                                        Icons.repeat,
-                                        size: 12,
-                                        color: Color(pad.color),
-                                      ),
-                                    ),
-
-                                  const Spacer(),
-
-                                  // Volume indicator
-                                  if (pad.volume < 1.0)
-                                    Icon(
-                                      Icons.volume_down,
-                                      size: 16,
-                                      color: Colors.white.withOpacity(0.8),
-                                    ),
-                                ],
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
-
-                      // Playing pulse effect
-                      if (isPlaying)
-                        Positioned.fill(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.3),
-                                width: 1,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
