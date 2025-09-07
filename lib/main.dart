@@ -1,29 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-// Import your services, routes, and initial view
+import 'app/routes/app_pages.dart';
+import 'app/services/storage_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // TODO: Initialize Isar database service
-  // TODO: Initialize AudioSession
-  
-  runApp(const MyApp());
+  await StorageService.init();
+
+  runApp(const ProPadApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class ProPadApp extends StatelessWidget {
+  const ProPadApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return GetMaterialApp(
       title: 'Pro Pad',
-      // TODO: Define light and dark themes in a separate class
-      theme: ThemeData.light(),
-      darkTheme: ThemeData.dark(),
-      // initialRoute: AppPages.INITIAL, // Define in your routes file
-      // getPages: AppPages.routes,
-      home: const Text("ProPad Home"), // Replace with your initial view
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: const Color(0xFF3B82F6),
+        brightness: Brightness.light,
+      ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: const Color(0xFF3B82F6),
+        brightness: Brightness.dark,
+      ),
+      initialRoute: AppPages.INITIAL,
+      getPages: AppPages.routes,
     );
   }
 }
