@@ -16,8 +16,8 @@ class PaletteRepository {
 
   Future<Palette> createPalette(
     String name, {
-    int rows = 3,
-    int cols = 4,
+    int rows = 6,
+    int cols = 5,
   }) async {
     final pal = Palette()
       ..name = name

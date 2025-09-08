@@ -7,8 +7,8 @@ class Palette {
   Id id = Isar.autoIncrement;
 
   late String name;
-  int rows = 3;
-  int cols = 4;
+  int rows = 8;
+  int cols = 5;
 
   // Relationship: a palette has many pads
   final pads = IsarLinks<Pad>();

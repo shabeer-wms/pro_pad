@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:get/get.dart';
 import 'package:file_picker/file_picker.dart';
@@ -6,16 +8,20 @@ import 'package:pro_pad/app/repositories/palette_repository.dart';
 import '../../../data/models/palette.dart';
 import '../../../data/models/pad.dart';
 import '../../../services/audio_service.dart';
+import '../../../services/audio_level_service.dart';
 
 class HomeController extends GetxController {
   final repo = PaletteRepository();
   final engine = AudioEngine();
+  final levels = AudioLevelService();
 
   final Rx<Palette?> currentPalette = Rx<Palette?>(null);
   final pads = <Pad>[].obs;
   final isBusy = false.obs;
   // track which pad ids are currently being hovered by a drag operation
   final hoveredPadIds = <int>{}.obs;
+  // pad id to show in the right-side audio meter (null = none)
+  final Rxn<int> activeMeterPadId = Rxn<int>();
 
   @override
   Future<void> onInit() async {
@@ -35,10 +41,12 @@ class HomeController extends GetxController {
       for (final pad in pads) {
         try {
           await engine.preload(pad.id, pad.uri);
+          // Warm the waveform cache in the background (non-fatal)
+          // Optionally warm waveform cache lazily when position stream starts.
         } catch (e) {
           // Keep going; the UI will show the pad but playback will fail until
           // the user fixes the file or reassigns it.
-          print(
+          debugPrint(
             'HomeController._loadInitial: failed to preload pad ${pad.id} (${pad.uri}): $e',
           );
         }
@@ -80,8 +88,12 @@ class HomeController extends GetxController {
     // preload audio into the engine (non-fatal)
     try {
       await engine.preload(p.id, p.uri);
+      // Optionally warm waveform cache lazily when position stream starts.
+      // Ensure observable list refresh so the view notices the loaded state
+      final idx = pads.indexWhere((x) => x.id == p.id);
+      if (idx != -1) pads[idx] = pads[idx];
     } catch (e) {
-      print('HomeController.addPad: preload failed for pad ${p.id}: $e');
+      debugPrint('HomeController.addPad: preload failed for pad ${p.id}: $e');
     }
   }
 
@@ -110,18 +122,45 @@ class HomeController extends GetxController {
       await file.copy(dest.path);
       return dest.path;
     } catch (e) {
-      print('HomeController._copyIntoAppSupport failed for ${file.path}: $e');
+      debugPrint(
+        'HomeController._copyIntoAppSupport failed for ${file.path}: $e',
+      );
       return file.path;
     }
   }
 
   Future<void> playPad(Pad pad) async {
-    await engine.play(
-      pad.id,
-      volume: pad.volume,
-      loop: pad.loop,
-      fadeInMs: pad.fadeInMs,
-    );
+    try {
+      // mark this pad as active for the audio meter
+      activeMeterPadId.value = pad.id;
+
+      // If loop is enabled, play() will not complete naturally.
+      if (pad.loop) {
+        await engine.play(
+          pad.id,
+          volume: pad.volume,
+          loop: pad.loop,
+          fadeInMs: pad.fadeInMs,
+        );
+        return;
+      }
+
+      // For non-looping pads, this Future completes when playback finishes.
+      await engine.play(
+        pad.id,
+        volume: pad.volume,
+        loop: pad.loop,
+        fadeInMs: pad.fadeInMs,
+      );
+      debugPrint('HomeController.playPad: pad ${pad.id} completed');
+      await engine.stop(pad.id);
+      // clear active meter after non-looping pad finishes
+      if (activeMeterPadId.value == pad.id) activeMeterPadId.value = null;
+    } catch (e) {
+      debugPrint('HomeController.playPad: failed for pad ${pad.id}: $e');
+      // clear active on failure
+      if (activeMeterPadId.value == pad.id) activeMeterPadId.value = null;
+    }
   }
 
   /// Handle a file dropped onto an existing pad: update pad uri/title, persist, and preload.
@@ -144,7 +183,16 @@ class HomeController extends GetxController {
     }
 
     // preload the new audio file into the engine
-    await engine.preload(pad.id, pad.uri);
+    try {
+      await engine.preload(pad.id, pad.uri);
+      // Optionally warm waveform cache lazily when position stream starts.
+      final i = pads.indexWhere((x) => x.id == pad.id);
+      if (i != -1) pads[i] = pads[i];
+    } catch (e) {
+      debugPrint(
+        'HomeController.dropFileOnPad: preload failed for ${pad.id}: $e',
+      );
+    }
 
     // clear hover state for this pad if present
     hoveredPadIds.remove(pad.id);
@@ -186,8 +234,11 @@ class HomeController extends GetxController {
 
       try {
         await engine.preload(p.id, p.uri);
+        // ensure observable refresh so the UI shows the pad as playable
+        final idx = pads.indexWhere((x) => x.id == p.id);
+        if (idx != -1) pads[idx] = pads[idx];
       } catch (e) {
-        print(
+        debugPrint(
           'HomeController.handleGlobalDrop: preload failed for pad ${p.id}: $e',
         );
       }
@@ -210,8 +261,11 @@ class HomeController extends GetxController {
 
     try {
       await engine.preload(first.id, first.uri);
+      // Optionally warm waveform cache lazily when position stream starts.
+      final idx = pads.indexWhere((x) => x.id == first.id);
+      if (idx != -1) pads[idx] = pads[idx];
     } catch (e) {
-      print(
+      debugPrint(
         'HomeController.handleGlobalDrop: preload failed for replaced pad ${first.id}: $e',
       );
     }
@@ -219,6 +273,7 @@ class HomeController extends GetxController {
 
   Future<void> stopPad(Pad pad) async {
     await engine.stop(pad.id, fadeOutMs: pad.fadeOutMs);
+    if (activeMeterPadId.value == pad.id) activeMeterPadId.value = null;
   }
 
   Future<void> stopAll() => engine.stopAll();
@@ -231,5 +286,67 @@ class HomeController extends GetxController {
 
   void resetPad(Pad pad) async {
     await engine.preload(pad.id, pad.uri);
+  }
+
+  /// Update pad color and persist.
+  Future<void> setPadColor(Pad pad, int color) async {
+    pad.color = color;
+    await repo.updatePad(pad);
+    final idx = pads.indexWhere((p) => p.id == pad.id);
+    if (idx != -1) pads[idx] = pads[idx];
+  }
+
+  /// Update pad fade-in milliseconds and persist.
+  Future<void> setPadFadeInMs(Pad pad, int ms) async {
+    pad.fadeInMs = ms;
+    await repo.updatePad(pad);
+    final idx = pads.indexWhere((p) => p.id == pad.id);
+    if (idx != -1) pads[idx] = pads[idx];
+  }
+
+  /// Update pad fade-out milliseconds and persist.
+  Future<void> setPadFadeOutMs(Pad pad, int ms) async {
+    pad.fadeOutMs = ms;
+    await repo.updatePad(pad);
+    final idx = pads.indexWhere((p) => p.id == pad.id);
+    if (idx != -1) pads[idx] = pads[idx];
+  }
+
+  /// Toggle pad loop flag and persist.
+  Future<void> togglePadLoop(Pad pad) async {
+    pad.loop = !pad.loop;
+    await repo.updatePad(pad);
+    final idx = pads.indexWhere((p) => p.id == pad.id);
+    if (idx != -1) pads[idx] = pads[idx];
+  }
+
+  /// Delete a pad from the current palette and persist removal.
+  Future<void> deletePad(Pad pad) async {
+    final pal = currentPalette.value;
+    if (pal == null) return;
+    try {
+      await repo.removePad(pal, pad);
+      pads.removeWhere((p) => p.id == pad.id);
+    } catch (e) {
+      debugPrint(
+        'HomeController.deletePad: failed to delete pad ${pad.id}: $e',
+      );
+    }
+    // ensure engine stops and resources are cleaned up for this pad id
+    try {
+      await engine.stop(pad.id);
+    } catch (_) {}
+    if (activeMeterPadId.value == pad.id) activeMeterPadId.value = null;
+  }
+
+  Future<void> handleDropAt(int padCount, String fp) async {
+    debugPrint('handleDropAt: padCount=$padCount, fp=$fp');
+  }
+
+  Future<void> setPadTitle(Pad pad, String newTitle) async {
+    pad.title = newTitle;
+    await repo.updatePad(pad);
+    final idx = pads.indexWhere((p) => p.id == pad.id);
+    if (idx != -1) pads[idx] = pads[idx];
   }
 }

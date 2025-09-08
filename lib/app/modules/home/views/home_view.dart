@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:pro_pad/app/data/models/pad.dart';
@@ -6,11 +7,40 @@ import '../../home/controllers/home_controller.dart';
 
 import '../../../services/audio_service.dart';
 
-class HomeView extends GetView<HomeController> {
-  const HomeView({super.key});
+class HomeView extends GetResponsiveView<HomeController> {
+  HomeView({super.key});
+
+  // Use separate responsive entry points (phone/tablet/desktop) instead of
+  // a single build method. Each override delegates to _buildMain which
+  // contains the original UI logic. We use Get.context to obtain a
+  // BuildContext inside the overrides.
 
   @override
-  Widget build(BuildContext context) {
+  Widget? phone() {
+    final ctx = Get.context!;
+    return _buildMain(ctx, preferTablet: false, preferDesktop: false);
+  }
+
+  @override
+  Widget? tablet() {
+    final ctx = Get.context!;
+    return _buildMain(ctx, preferTablet: true, preferDesktop: false);
+  }
+
+  @override
+  Widget? desktop() {
+    final ctx = Get.context!;
+    return _buildMain(ctx, preferTablet: true, preferDesktop: true);
+  }
+
+  // Shared implementation of the previous `build` body. The preferTablet
+  // and preferDesktop flags allow the phone/tablet/desktop overrides to
+  // influence layout while still respecting LayoutBuilder constraints.
+  Widget _buildMain(
+    BuildContext context, {
+    required bool preferTablet,
+    required bool preferDesktop,
+  }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
@@ -50,20 +80,18 @@ class HomeView extends GetView<HomeController> {
       ),
       body: Obx(() {
         if (controller.isBusy.value) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircularProgressIndicator(color: colorScheme.primary),
-                const SizedBox(height: 16),
-                Text(
-                  'Loading audio files...',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: colorScheme.primary),
+              const SizedBox(height: 16),
+              Text(
+                'Loading audio files...',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
                 ),
-              ],
-            ),
+              ),
+            ],
           );
         }
 
@@ -108,8 +136,8 @@ class HomeView extends GetView<HomeController> {
           builder: (context, constraints) {
             // Responsive grid configuration
             final screenWidth = constraints.maxWidth;
-            final isTablet = screenWidth > 600;
-            final isDesktop = screenWidth > 1200;
+            final isTablet = preferTablet || screenWidth > 600;
+            final isDesktop = preferDesktop || screenWidth > 1200;
 
             // Adjust padding based on screen size
             final horizontalPadding = isDesktop
@@ -121,7 +149,9 @@ class HomeView extends GetView<HomeController> {
             final padSpacing = isDesktop ? 16.0 : (isTablet ? 14.0 : 12.0);
 
             // Calculate optimal aspect ratio
-            final aspectRatio = isDesktop ? 2.2 : (isTablet ? 2.0 : 1.8);
+            final aspectRatio = isDesktop
+                ? Get.width / (Get.height * 0.5)
+                : (isTablet ? 2.0 : 1.8);
 
             final grid = SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: cols,
@@ -130,59 +160,230 @@ class HomeView extends GetView<HomeController> {
               childAspectRatio: aspectRatio,
             );
 
-            return Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    colorScheme.surface,
-                    colorScheme.surfaceVariant.withOpacity(0.3),
-                  ],
-                ),
-              ),
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: horizontalPadding,
-                  vertical: verticalPadding,
-                ),
-                child: DropTarget(
-                  onDragDone: (details) async {
-                    if (details.files.isNotEmpty) {
-                      final fp = details.files.first.path;
-                      await controller.handleGlobalDrop(fp);
-                    }
-                  },
-                  child: GridView.builder(
-                    itemCount: total,
-                    gridDelegate: grid,
-                    physics: const BouncingScrollPhysics(),
-                    itemBuilder: (context, index) {
-                      if (index >= padCount) {
-                        return _EmptyCell(
-                          onTap: controller.addPad,
-                          colorScheme: colorScheme,
-                          theme: theme,
-                        );
-                      }
+            return Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          colorScheme.surface,
+                          colorScheme.surfaceVariant.withOpacity(0.3),
+                        ],
+                      ),
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: horizontalPadding,
+                        vertical: verticalPadding,
+                      ),
+                      child: DropTarget(
+                        onDragDone: (details) async {
+                          if (details.files.isNotEmpty) {
+                            final fp = details.files.first.path;
+                            await controller.handleGlobalDrop(fp);
+                          }
+                        },
+                        child: GridView.builder(
+                          itemCount: total,
+                          gridDelegate: grid,
+                          physics: const BouncingScrollPhysics(),
+                          itemBuilder: (context, index) {
+                            if (index >= padCount) {
+                              return _EmptyCell(
+                                onTap: controller.addPad,
+                                colorScheme: colorScheme,
+                                theme: theme,
+                              );
+                            }
 
-                      final pad = pads[index];
+                            final pad = pads[index];
 
-                      return _PadTile(
-                        pad: pad,
-                        controller: controller,
-                        colorScheme: colorScheme,
-                        theme: theme,
-                        isDesktop: isDesktop,
-                      );
-                    },
+                            return _PadTile(
+                              pad: pad,
+                              controller: controller,
+                              colorScheme: colorScheme,
+                              theme: theme,
+                              isDesktop: isDesktop,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                if (controller.pads.isNotEmpty)
+                  SizedBox(
+                    height: Get.height,
+                    width: 30,
+                    child: _MasterAudioMeter(controller: controller),
+                  ),
+              ],
             );
           },
         );
       }),
+    );
+  }
+}
+
+class _MasterAudioMeter extends StatefulWidget {
+  final HomeController controller;
+  const _MasterAudioMeter({required this.controller});
+
+  @override
+  State<_MasterAudioMeter> createState() => _MasterAudioMeterState();
+}
+
+class _MasterAudioMeterState extends State<_MasterAudioMeter> {
+  final Map<int, StreamSubscription> _playingSubs = {};
+  final Map<int, StreamSubscription> _levelSubs = {};
+  final Map<int, bool> _isPlaying = {};
+  final Map<int, (double, double)> _levels = {};
+  final Map<int, String> _uris = {}; // track current uri per pad id
+  final Set<int> _trackedPadIds = <int>{};
+  (double, double) _combined = (0.0, 0.0);
+
+  HomeController get _c => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _setup();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MasterAudioMeter oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Pads is an RxList whose identity doesn't change. Diff by IDs and URIs instead.
+    _refreshBindings();
+  }
+
+  void _setup() {
+    _refreshBindings();
+  }
+
+  void _teardown() {
+    for (final s in _playingSubs.values) {
+      s.cancel();
+    }
+    for (final s in _levelSubs.values) {
+      s.cancel();
+    }
+    _playingSubs.clear();
+    _levelSubs.clear();
+    _isPlaying.clear();
+    _levels.clear();
+    _uris.clear();
+    _trackedPadIds.clear();
+    _combined = (0.0, 0.0);
+  }
+
+  void _bindPad(Pad pad) {
+    _isPlaying[pad.id] = false;
+    _levels[pad.id] = (0.0, 0.0);
+    _uris[pad.id] = pad.uri;
+    _trackedPadIds.add(pad.id);
+    // Listen to playing state
+    _playingSubs[pad.id]?.cancel();
+    _playingSubs[pad.id] = _c.engine.playingStream(pad.id).listen((playing) {
+      _isPlaying[pad.id] = playing;
+      if (playing) {
+        // When playback starts, (re)bind the level subscription to a fresh position stream
+        _levelSubs[pad.id]?.cancel();
+        final pos = _c.engine.positionStream(pad.id).asBroadcastStream();
+        _levelSubs[pad.id] = _c.levels.levelsFor(_uris[pad.id]!, pos).listen((
+          lr,
+        ) {
+          if (_isPlaying[pad.id] == true) {
+            _levels[pad.id] = lr;
+            _recompute();
+          }
+        });
+      } else {
+        // Stop tracking levels when not playing
+        _levelSubs[pad.id]?.cancel();
+        _levels[pad.id] = (0.0, 0.0);
+        _recompute();
+      }
+    });
+  }
+
+  void _unbindPad(int id) {
+    _playingSubs[id]?.cancel();
+    _levelSubs[id]?.cancel();
+    _playingSubs.remove(id);
+    _levelSubs.remove(id);
+    _isPlaying.remove(id);
+    _levels.remove(id);
+    _uris.remove(id);
+    _trackedPadIds.remove(id);
+  }
+
+  void _refreshBindings() {
+    final currentIds = _c.pads.map((p) => p.id).toSet();
+    // Remove bindings for pads no longer present
+    final toRemove = _trackedPadIds.difference(currentIds);
+    for (final id in toRemove) {
+      _unbindPad(id);
+    }
+    // Add bindings for new pads
+    final toAdd = currentIds.difference(_trackedPadIds);
+    for (final id in toAdd) {
+      final pad = _c.pads.firstWhere(
+        (p) => p.id == id,
+        orElse: () => _c.pads.first,
+      );
+      _bindPad(pad);
+    }
+    // For existing pads, if URI changed (file replaced), update and, if playing, rebind level stream
+    final intersection = currentIds.intersection(_trackedPadIds);
+    for (final id in intersection) {
+      final pad = _c.pads.firstWhere((p) => p.id == id);
+      final oldUri = _uris[id];
+      if (oldUri != pad.uri) {
+        _uris[id] = pad.uri;
+        if (_isPlaying[id] == true) {
+          // rebind only the level subscription with new URI
+          _levelSubs[id]?.cancel();
+          final pos = _c.engine.positionStream(id).asBroadcastStream();
+          _levelSubs[id] = _c.levels.levelsFor(pad.uri, pos).listen((lr) {
+            if (_isPlaying[id] == true) {
+              _levels[id] = lr;
+              _recompute();
+            }
+          });
+        }
+      }
+    }
+  }
+
+  void _recompute() {
+    double l = 0.0, r = 0.0;
+    _levels.forEach((id, lr) {
+      if (_isPlaying[id] == true) {
+        if (lr.$1 > l) l = lr.$1;
+        if (lr.$2 > r) r = lr.$2;
+      }
+    });
+    setState(() => _combined = (l, r));
+  }
+
+  @override
+  void dispose() {
+    _teardown();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: CustomPaint(
+        painter: _LRBarsPainter(left: _combined.$1, right: _combined.$2),
+        child: const SizedBox.expand(),
+      ),
     );
   }
 }
@@ -216,74 +417,49 @@ class _PadTile extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
           child: InkWell(
-            onTap: () => controller.playPad(pad),
+            onTap: () {
+              if (isPlaying) {
+                controller.stopPad(pad);
+                return;
+              }
+              controller.resetPad(pad);
+              controller.playPad(pad);
+            },
+            onSecondaryTap: () async {
+              await _showEditPadMenu(context, pad, controller);
+            },
             onDoubleTap: () => controller.resetPad(pad),
-            onLongPress: () => controller.stopPad(pad),
-            child: Container(
-              decoration: BoxDecoration(
-                color: !loaded
-                    // not loaded -> greyed out pad
-                    ? colorScheme.onSurface.withOpacity(0.12)
-                    : (isPlaying
-                          ? Color(pad.color)
-                          : colorScheme.primaryContainer),
-                border: isPlaying
-                    ? Border.all(color: Colors.white.withOpacity(0.6), width: 2)
-                    : null,
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: Stack(
-                  children: [
-                    // Animated background pattern for playing state
-                    if (isPlaying)
-                      Positioned.fill(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 500),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Colors.white.withOpacity(0.1),
-                                Colors.transparent,
-                                Colors.white.withOpacity(0.05),
-                              ],
-                            ),
-                          ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (isPlaying)
+                  _PadProgress(
+                    padId: pad.id,
+                    engine: controller.engine,
+                    decreasing: true,
+                  ),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        height: double.infinity,
+                        decoration: BoxDecoration(
+                          color: !loaded
+                              // not loaded -> greyed out pad
+                              ? colorScheme.onSurface.withAlpha(30)
+                              : (!isPlaying
+                                    ? Color(pad.color)
+                                    : colorScheme.surfaceContainerHighest),
                         ),
-                      ),
-
-                    // Progress indicator at top
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      child: Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: _PadProgress(
-                          padId: pad.id,
-                          engine: controller.engine,
-                          decreasing: true,
-                        ),
-                      ),
-                    ),
-
-                    // Main content area
-                    Positioned.fill(
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          16,
-                          isDesktop ? 28 : 24,
-                          16,
-                          12,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Title section
-                            Expanded(
-                              child: Center(
+                        child: Center(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.max,
+                            children: [
+                              SizedBox(
+                                width: isDesktop ? 100 : 80,
                                 child: Text(
                                   pad.title,
                                   textAlign: TextAlign.center,
@@ -291,26 +467,59 @@ class _PadTile extends StatelessWidget {
                                     color: Colors.white,
                                     fontWeight: FontWeight.w600,
                                     fontSize: isDesktop ? 16 : 14,
-                                    shadows: [
-                                      Shadow(
-                                        offset: const Offset(0, 1),
-                                        blurRadius: 2,
-                                        color: Colors.black.withOpacity(0.3),
-                                      ),
-                                    ],
                                   ),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 4),
+                              // pad duration (use engine's duration stream)
+                              StreamBuilder<Duration?>(
+                                stream: controller.engine.durationStream(
+                                  pad.id,
+                                ),
+                                builder: (context, durSnap) {
+                                  final d = durSnap.data;
+                                  String fmt(Duration dur) {
+                                    final m = dur.inMinutes
+                                        .remainder(60)
+                                        .toString()
+                                        .padLeft(2, '0');
+                                    final s = dur.inSeconds
+                                        .remainder(60)
+                                        .toString()
+                                        .padLeft(2, '0');
+                                    return '$m:$s';
+                                  }
+
+                                  final txt = d != null ? fmt(d) : '';
+                                  return Text(
+                                    txt,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                      // if (isPlaying)
+                      //   Align(
+                      //     alignment: Alignment.centerRight,
+                      //     child: SizedBox(
+                      //       width: 12,
+                      //       child: _StereoAudioMeter(
+                      //         pad: pad,
+                      //         controller: controller,
+                      //       ),
+                      //     ),
+                      //   ),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         );
@@ -348,14 +557,11 @@ class _PadProgress extends StatelessWidget {
             final display = (value != null && decreasing)
                 ? (1.0 - value)
                 : value;
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: LinearProgressIndicator(
-                value: display,
-                color: Colors.white.withOpacity(0.9),
-                backgroundColor: Colors.white.withOpacity(0.2),
-                minHeight: 8,
-              ),
+            return LinearProgressIndicator(
+              value: display,
+              color: Colors.white.withAlpha(220),
+              backgroundColor: Colors.white.withAlpha(40),
+              minHeight: 8,
             );
           },
         );
@@ -364,45 +570,59 @@ class _PadProgress extends StatelessWidget {
   }
 }
 
-class _AudioMeter extends StatelessWidget {
-  final int padId;
-  final AudioEngine engine;
+// _StereoAudioMeter widget removed (unused)
 
-  const _AudioMeter({required this.padId, required this.engine});
+class _LRBarsPainter extends CustomPainter {
+  final double left;
+  final double right;
+  _LRBarsPainter({required this.left, required this.right});
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<bool>(
-      stream: engine.playingStream(padId),
-      builder: (context, snap) {
-        final playing = snap.data == true;
-        return Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(3),
-            gradient: LinearGradient(
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
-              colors: playing
-                  ? [
-                      Colors.green.shade400,
-                      Colors.green.shade300,
-                      Colors.white.withOpacity(0.9),
-                    ]
-                  : [
-                      Colors.white.withOpacity(0.3),
-                      Colors.white.withOpacity(0.2),
-                    ],
-            ),
-          ),
-          child: FractionallySizedBox(
-            heightFactor: playing ? 1.0 : 0.2,
-            alignment: Alignment.bottomCenter,
-          ),
-        );
-      },
+  void paint(Canvas canvas, Size size) {
+    final bg = Paint()..color = Colors.black.withOpacity(0.4);
+    final radius = 6.0;
+    final rect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
     );
+    canvas.drawRRect(rect, bg);
+
+    final barGap = 6.0;
+    final barWidth = (size.width - barGap) / 2;
+    final segHeight = 6.0;
+    final segGap = 2.0;
+    final maxSegs = (size.height / (segHeight + segGap)).floor();
+
+    void drawBar(double x, double value) {
+      final segmentsLit = (value * maxSegs).clamp(0, maxSegs).toInt();
+      for (int i = 0; i < maxSegs; i++) {
+        final topToBottomIndex = maxSegs - 1 - i;
+        final y = topToBottomIndex * (segHeight + segGap) + segGap;
+        final segRect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, y, barWidth, segHeight),
+          const Radius.circular(2),
+        );
+        final active = i < segmentsLit;
+        final t = i / (maxSegs - 1).clamp(1, maxSegs);
+        final color = active
+            ? Color.lerp(Colors.green, Colors.redAccent, t)!
+            : Colors.white12;
+        canvas.drawRRect(segRect, Paint()..color = color);
+      }
+    }
+
+    drawBar(0, left);
+    drawBar(barWidth + barGap, right);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LRBarsPainter oldDelegate) {
+    return oldDelegate.left != left || oldDelegate.right != right;
   }
 }
+
+// Minimal, clean in-pad meter painter: two vertical bars with subtle tracks and solid fills.
+// (Mini in-pad meter painter removed together with unused in-pad meter widget)
 
 class _EmptyCell extends StatelessWidget {
   final VoidCallback onTap;
@@ -417,42 +637,215 @@ class _EmptyCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      elevation: 2,
-      borderRadius: BorderRadius.circular(20),
-      color: colorScheme.surfaceVariant,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: colorScheme.outline.withOpacity(0.5),
-              width: 2,
-              style: BorderStyle.solid,
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: colorScheme.outline.withOpacity(0.5),
+            width: 2,
+            style: BorderStyle.solid,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.add_circle_outline,
+              size: 32,
+              color: colorScheme.onSurfaceVariant,
             ),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.add_circle_outline,
-                size: 32,
+            const SizedBox(height: 8),
+            Text(
+              'Add Audio',
+              style: theme.textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Add Audio',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
+
+// Helper: show edit pad menu dialog
+Future<void> _showEditPadMenu(
+  BuildContext context,
+  Pad pad,
+  HomeController controller,
+) async {
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  int selectedColor = pad.color;
+  int fadeIn = pad.fadeInMs;
+  int fadeOut = pad.fadeOutMs;
+  bool loop = pad.loop;
+
+  // local mutable copy of title for editing
+  String title = pad.title;
+
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) {
+      return AlertDialog(
+        title: const Text('Edit Pad'),
+        content: StatefulBuilder(
+          builder: (c, setState) {
+            return SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Title', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    initialValue: pad.title,
+                    onChanged: (v) => title = v,
+                    decoration: const InputDecoration(
+                      hintText: 'Pad title',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text('Color', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final col in _presetColors)
+                        GestureDetector(
+                          onTap: () => setState(() => selectedColor = col),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Color(col),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: selectedColor == col
+                                    ? colorScheme.primary
+                                    : Colors.transparent,
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text('Fade In (ms)', style: theme.textTheme.bodyMedium),
+                  Slider(
+                    min: 0,
+                    max: 2000,
+                    divisions: 20,
+                    value: fadeIn.toDouble().clamp(0, 2000),
+                    onChanged: (v) => setState(() => fadeIn = v.toInt()),
+                  ),
+                  Text('$fadeIn ms', style: theme.textTheme.bodySmall),
+                  const SizedBox(height: 8),
+                  Text('Fade Out (ms)', style: theme.textTheme.bodyMedium),
+                  Slider(
+                    min: 0,
+                    max: 5000,
+                    divisions: 20,
+                    value: fadeOut.toDouble().clamp(0, 5000),
+                    onChanged: (v) => setState(() => fadeOut = v.toInt()),
+                  ),
+                  Text('$fadeOut ms', style: theme.textTheme.bodySmall),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Loop', style: theme.textTheme.bodyMedium),
+                      Switch(
+                        value: loop,
+                        onChanged: (val) => setState(() => loop = val),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Danger Zone',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: colorScheme.error,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colorScheme.errorContainer,
+                      foregroundColor: colorScheme.onErrorContainer,
+                    ),
+                    onPressed: () {
+                      final navigator = Navigator.of(ctx);
+                      showDialog<bool>(
+                        context: ctx,
+                        builder: (dctx) => AlertDialog(
+                          title: const Text('Delete Pad?'),
+                          content: const Text(
+                            'This will permanently remove the pad.',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(dctx).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(dctx).pop(true),
+                              child: const Text('Delete'),
+                            ),
+                          ],
+                        ),
+                      ).then((confirm) async {
+                        if (confirm == true) {
+                          navigator.pop();
+                          await controller.deletePad(pad);
+                        }
+                      });
+                    },
+                    child: const Text('Delete Pad'),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final navigator = Navigator.of(ctx);
+              final newTitle = title.trim();
+              if (newTitle.isNotEmpty && newTitle != pad.title) {
+                await controller.setPadTitle(pad, newTitle);
+              }
+              await controller.setPadColor(pad, selectedColor);
+              await controller.setPadFadeInMs(pad, fadeIn);
+              await controller.setPadFadeOutMs(pad, fadeOut);
+              if (pad.loop != loop) await controller.togglePadLoop(pad);
+              navigator.pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+// Some nice preset swatches
+const List<int> _presetColors = [
+  0xFF3B82F6, // blue
+  0xFF22C55E, // green
+  0xFFF59E0B, // amber
+  0xFFEF4444, // red
+  0xFF8B5CF6, // purple
+  0xFF06B6D4, // teal
+];
